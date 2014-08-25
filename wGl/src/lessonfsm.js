@@ -34,8 +34,8 @@ function createLesson( context )
 	ret.addState("Asm", new AsmState( oData ));
 	ret.addState("Clean", new CleanState( oData ));
 	
-	ret.addTransition( "Load", "loadComplete", "Asm" );
-	//ret.addTransition( "Load", "loadComplete", "Explore" );
+	//ret.addTransition( "Load", "loadComplete", "Asm" );
+	ret.addTransition( "Load", "loadComplete", "Explore" );
 	ret.addTransition( "Asm", "exitAsm", "Explore" );
 	ret.addTransition( "Explore", "startAsm", "Asm" );
 	
@@ -184,7 +184,7 @@ LoadState.prototype.enter = function ()
 	this.tjsLoader.setObserver(this);
     
     
-	this.envLoader.loadObj("assets/3d/office3d/18361-obj-4/", "OfficeOBJ.obj");
+	this.envLoader.loadObj("assets/3d/apartment/a1/", "sheldon.obj");
 	this.penLoader.loadObj("assets/3d/stylus/", "stylus.obj");
 	this.tjsLoader.loadJson( "assets/3d/animtest/", "humanoid.js" );
 
@@ -216,7 +216,7 @@ LoadState.prototype.enter = function ()
 	var camera = this.scene.getCamera();
 	camera.setLookAt(4.232629776000977*4, 2.6432266235351562*4, 0.2486426830291748*4);
 	camera.setUp(-0.09341227263212204, 0.9805285334587097, 0.17273758351802826);
-	camera.setEye(9.44430160522461*4, 4.382470607757568*4, -3.9111077785491943*4);
+	camera.setEye(0, 7, 0);
 };
 
 /**
@@ -274,13 +274,14 @@ LoadState.prototype.exit = function ()
 	light2.setPosition(-6, 28.25, 16);
 	light3.setPosition(0, 28.25, -22);*/
 	
+	var h = 15.877;
 	
-	light0.setPosition(-18, 28.25, 16);
-	light1.setPosition(-18, 28.25, -20);
-	light2.setPosition(6, 28.25, 16);
-	light3.setPosition(6, 28.25, -20);
-	light4.setPosition(30, 28.25, 16);
-	light5.setPosition(30, 28.25, -20);
+	light0.setPosition(0, h, 0);
+	light1.setPosition(-10, h, -7.9);
+	light2.setPosition(-20.4, h, -6.4);
+	light3.setPosition(9.9, h, -21.6);
+	light4.setPosition(20.2, h, -6);
+	light5.setPosition(3, 12, -28);
 	
 	
 	
