@@ -60,12 +60,17 @@ GRenderPhongStrategy.prototype.configure = function()
 {
     this.shaderSrcMap = 
     {
-        "phong-vs.c":undefined,
-        "phong-fs.c":undefined,
+        
         "fullscr-vs.c":undefined,
         "fullscr-fs.c":undefined,
         "fxaa-vs.c":undefined,
-        "fxaa-fs.c":undefined
+        "fxaa-fs.c":undefined,
+        "objid-fs.c":undefined,
+        "objid-vs.c":undefined,
+        "objidscr-fs.c":undefined,
+        "objidscr-vs.c":undefined,
+        "phong-vs.c":undefined,
+        "phong-fs.c":undefined
     };
     
     for (var key in this.shaderSrcMap)
@@ -75,16 +80,32 @@ GRenderPhongStrategy.prototype.configure = function()
 };
 
 /**
+ * Called to delete all the resources under this buffer
+ */
+GRenderPhongStrategy.prototype.deleteResources = function()
+{
+    this._isReady = false;
+    
+    for ( var fKey in this.frameBuffers )
+    {
+        this.frameBuffers[fKey].deleteResources();
+    }
+    
+    for ( var key in this.programs )
+    {
+        this.programs[key].destroy();
+        this.programs[key] = undefined;
+    }
+    
+    this.deleteScreenVBOs();
+}
+
+/**
  * Free and reload all the resource for this strategy
  */
 GRenderPhongStrategy.prototype.reload = function()
 {
-    this._isReady = false;
-    this.phongComposite.destroy();
-    this.fullScreenProgram.destroy();
-    
-    this.phongComposite = undefined;
-    this.fullScreenProgram = undefined;
+    this.deleteResources();
     this.configure();
 };
 
@@ -138,6 +159,8 @@ GRenderPhongStrategy.prototype.initialize = function()
     this.initShaders(this.shaderSrcMap);
     
     this.initScreenVBOs();
+    
+    this.initPassCmds();
     this._isReady = true;
 };
 
@@ -158,7 +181,7 @@ GRenderPhongStrategy.prototype.initScreenVBOs = function()
 {
     var gl = this.gl;
     
-    gl.clearColor(0.1, 0.3, 0.1, 1.0);
+    gl.clearColor(0, 0, 0, 1.0);
     gl.enable(gl.DEPTH_TEST);
     
     
@@ -193,8 +216,25 @@ GRenderPhongStrategy.prototype.initScreenVBOs = function()
                   gl.STATIC_DRAW);
     this.screenIndxBuffer.itemSize = 1;
     this.screenIndxBuffer.numItems = 6;
+    
+    this.screen = {};
+    
+    this.screen.vertBuffer = this.screenVertBuffer;
+    this.screen.textBuffer = this.screenTextBuffer;
+    this.screen.indxBuffer = this.screenIndxBuffer;
 	
 	this.hMatrix = mat3.create();
+};
+
+/**
+ * Create the screen VBOs for drawing the screen
+ */
+GRenderPhongStrategy.prototype.deleteScreenVBOs = function()
+{
+    for ( var key in this.screen )
+    {
+        this.gl.deleteBuffer( this.screen[key] );
+    }
 };
 
 /**
@@ -203,34 +243,32 @@ GRenderPhongStrategy.prototype.initScreenVBOs = function()
 GRenderPhongStrategy.prototype.initTextureFramebuffer = function()
 {
     var gl = this.gl;
-    this.rttFramebuffer = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.rttFramebuffer);
-    this.rttFramebuffer.width = 1024;
-    this.rttFramebuffer.height = 1024;
     
-    this.rttTexture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.rttTexture);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.rttFramebuffer.width, this.rttFramebuffer.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    
-    var renderbuffer = gl.createRenderbuffer();
-    gl.bindRenderbuffer(gl.RENDERBUFFER, renderbuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, this.rttFramebuffer.width, this.rttFramebuffer.height);
-    
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.rttTexture, 0);
-    
-    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE)
+    var texCfg = 
     {
-        alert("incomplete famebuffer");
-    }
+        filter: gl.LINEAR,
+        format: gl.RGBA,
+        type: gl.UNSIGNED_BYTE,
+        attachment: gl.COLOR_ATTACHMENT0,
+        name: "color"
+    };
     
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, renderbuffer);
+    this.frameBuffers = {};
     
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    var frameBuffer = new GFrameBuffer({ gl: this.gl, width: 1024, height: 1024 });
+    frameBuffer.addBufferTexture(texCfg);
+    frameBuffer.complete();
+    this.frameBuffers.color = frameBuffer;
+    
+    frameBuffer = new GFrameBuffer({ gl: this.gl, width: 1024, height: 1024 });
+    frameBuffer.addBufferTexture(texCfg);
+    frameBuffer.complete();
+    this.frameBuffers.objid = frameBuffer;
+    
+    frameBuffer = new GFrameBuffer({ gl: this.gl, width: 1024, height: 1024 });
+    frameBuffer.addBufferTexture(texCfg);
+    frameBuffer.complete();
+    this.frameBuffers.objidHud = frameBuffer;
 };
 
 /**
@@ -240,23 +278,19 @@ GRenderPhongStrategy.prototype.initTextureFramebuffer = function()
 GRenderPhongStrategy.prototype.initShaders = function (shaderSrcMap) 
 {
     var gl = this.gl;
+    this.programs = {};
     
+    this.programs.phongComposite = new ShaderComposite( shaderSrcMap["phong-vs.c"], shaderSrcMap["phong-fs.c"] ); 
+    this.programs.objidComposite = new ShaderComposite( shaderSrcMap["objid-vs.c"], shaderSrcMap["objid-fs.c"] );
     
-      
-    var phongComposite = new ShaderComposite( shaderSrcMap["phong-vs.c"], shaderSrcMap["phong-fs.c"]);
-    phongComposite.bindToContext(gl);
+    this.programs.fullScr  = new GShader( shaderSrcMap["fullscr-vs.c"],  shaderSrcMap["fullscr-fs.c"] );
+    this.programs.fxaa     = new GShader( shaderSrcMap["fxaa-vs.c"],     shaderSrcMap["fxaa-fs.c"] );
+    this.programs.objidscr = new GShader( shaderSrcMap["objidscr-vs.c"], shaderSrcMap["objidscr-fs.c"]       );
     
-    var fullScr = new GShader( shaderSrcMap["fullscr-vs.c"], shaderSrcMap["fullscr-fs.c"]);
-    fullScr.bindToContext(gl);
-    
-    var fxaa = new GShader( shaderSrcMap["fxaa-vs.c"], shaderSrcMap["fxaa-fs.c"]);
-    fxaa.bindToContext(gl);
-    
-    this.fullScreenProgram = fullScr;
-    this.fxaaProgram = fxaa;
-   
-    
-    this.phongComposite = phongComposite;
+    for ( var key in this.programs )
+    {
+        this.programs[key].bindToContext(gl);
+    }
 };
 
 /**
@@ -271,8 +305,7 @@ GRenderPhongStrategy.prototype.drawScreenBuffer = function(shader)
     gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.rttTexture);
+   
     gl.uniform1i(shader.uniforms.mapKd, 0);
     
     if ( null != shader.uniforms.Kd )
@@ -299,6 +332,18 @@ GRenderPhongStrategy.prototype.drawScreenBuffer = function(shader)
 };
 
 /**
+ * Create the pass command pipeline
+ */
+GRenderPhongStrategy.prototype.initPassCmds = function()
+{   
+    var colorPass = new GGeometryRenderPassCmd( this.gl, this.programs.phongComposite, this.frameBuffers.color );
+    var objidPass = new GGeometryRenderPassCmd( this.gl, this.programs.objidComposite, this.frameBuffers.objid );
+    
+    this.passes = [ colorPass, objidPass ];
+};
+    
+
+/**
  * Draw the scene and hud elements using this strategy
  * @param {GScene} Scene to draw with this strategy
  * @param {GHudController} Hud to draw with this strategy
@@ -306,26 +351,60 @@ GRenderPhongStrategy.prototype.drawScreenBuffer = function(shader)
 GRenderPhongStrategy.prototype.draw = function ( scene, hud )
 {
     var gl = this.gl;
-   
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.rttFramebuffer);
-    gl.viewport(0, 0, 1024, 1024);
-    gl.enable(gl.DEPTH_TEST);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);	
+    
+    for ( var key in this.passes )
+    {
+        this.passes[key].run( scene );
+    }
+    
+    this.frameBuffers.color.bindTexture(gl.TEXTURE0, "color");
+    this.programs.fxaa.activate();
+    this.drawScreenBuffer(this.programs.fxaa);	
     
     
-    scene.draw(this.phongComposite);
-    
-    
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    
-    this.fxaaProgram.activate();
-    this.drawScreenBuffer(this.fxaaProgram);	
-    
-    this.fullScreenProgram.activate();
     if (hud != undefined)
     {
-        hud.draw(this.fullScreenProgram);
+        this.programs.fullScr.activate();
+        hud.draw(this.programs.fullScr);
+        this.programs.fullScr.deactivate();
+        
+        this.frameBuffers.objidHud.bindBuffer();
+        this.programs.objidscr.activate();
+        gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT );
+        hud.draw( this.programs.objidscr ); 
+        this.programs.objidscr.deactivate();
     }
-    this.fullScreenProgram.deactivate();
 }; 
+
+GRenderPhongStrategy.tempObjIdA = new Uint8Array(4);
+
+/**
+ * Get the object id of the object at the provided mouse location
+ * @param {number}
+ * @param {number}
+ */
+GRenderPhongStrategy.prototype.getObjectIdAt = function ( x, y )
+{
+    this.frameBuffers.objid.getColorValueAt(x, y, GRenderPhongStrategy.tempObjIdA);
+    
+    return ( GRenderPhongStrategy.tempObjIdA[0] << 16 |
+             GRenderPhongStrategy.tempObjIdA[1] << 8  |
+             GRenderPhongStrategy.tempObjIdA[2] );
+};
+
+/**
+ * Get the object id of the object at the provided mouse location
+ * @param {number}
+ * @param {number}
+ */
+GRenderPhongStrategy.prototype.getHudObjectIdAt = function ( x, y )
+{
+    this.frameBuffers.objidHud.getColorValueAt(x, y, GRenderDeferredStrategy.tempObjIdA);
+    
+    return ( GRenderDeferredStrategy.tempObjIdA[0] << 16 |
+             GRenderDeferredStrategy.tempObjIdA[1] << 8  |
+             GRenderDeferredStrategy.tempObjIdA[2] );
+};
+
+
 
