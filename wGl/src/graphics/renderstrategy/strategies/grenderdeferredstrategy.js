@@ -29,6 +29,8 @@ function GRenderDeferredStrategy( gl )
     
     this.extensions = {};
     this.extensions.stdDeriv = gl.getExtension('OES_standard_derivatives');
+    
+    this.renderLevel = 0;
 }
 
 GRenderDeferredStrategy.prototype = Object.create( GRenderStrategy.prototype );
@@ -57,6 +59,8 @@ GRenderDeferredStrategy.prototype.configure = function()
         "fxaa-fs.c":undefined,
         "objid-fs.c":undefined,
         "objid-vs.c":undefined,
+        "objidscr-fs.c":undefined,
+        "objidscr-vs.c":undefined,
         "position-fs.c":undefined,
         "position-vs.c":undefined,
         "shadowmap-vs.c":undefined,
@@ -74,11 +78,16 @@ GRenderDeferredStrategy.prototype.configure = function()
 };
 
 /**
- * Free and reload all the resource for this strategy
+ * Called to delete all the resources under this buffer
  */
-GRenderDeferredStrategy.prototype.reload = function()
+GRenderDeferredStrategy.prototype.deleteResources = function()
 {
     this._isReady = false;
+    
+    for ( var fKey in this.frameBuffers )
+    {
+        this.frameBuffers[fKey].deleteResources();
+    }
     
     for ( var key in this.programs )
     {
@@ -86,6 +95,15 @@ GRenderDeferredStrategy.prototype.reload = function()
         this.programs[key] = undefined;
     }
     
+    this.deleteScreenVBOs();
+}
+
+/**
+ * Free and reload all the resource for this strategy
+ */
+GRenderDeferredStrategy.prototype.reload = function()
+{
+    this.deleteResources();
     this.configure();
 };
 
@@ -207,6 +225,17 @@ GRenderDeferredStrategy.prototype.initScreenVBOs = function()
 };
 
 /**
+ * Create the screen VBOs for drawing the screen
+ */
+GRenderDeferredStrategy.prototype.deleteScreenVBOs = function()
+{
+    for ( var key in this.screen )
+    {
+        this.gl.deleteBuffer( this.screen[key] );
+    }
+};
+
+/**
  * Helper function to compile the shaders after all the source has been
  * downloaded
  */
@@ -223,12 +252,14 @@ GRenderDeferredStrategy.prototype.initShaders = function ()
     this.programs.light       = new GShader( shaderSrcMap["light-vs.c"],       shaderSrcMap["light-fs.c"]       );
     this.programs.toneMap     = new GShader( shaderSrcMap["tonemap-vs.c"],     shaderSrcMap["tonemap-fs.c"]     );
     this.programs.fxaa        = new GShader( shaderSrcMap["fxaa-vs.c"],        shaderSrcMap["fxaa-fs.c"]        );
+    this.programs.objidscr    = new GShader( shaderSrcMap["objidscr-vs.c"],    shaderSrcMap["objidscr-fs.c"]       );
     
     this.programs.colorspec   = new ShaderComposite( shaderSrcMap["colorspec-vs.c"],   shaderSrcMap["colorspec-fs.c"]   );
     this.programs.normaldepth = new ShaderComposite( shaderSrcMap["normaldepth-vs.c"], shaderSrcMap["normaldepth-fs.c"] );
     this.programs.position    = new ShaderComposite( shaderSrcMap["position-vs.c"],    shaderSrcMap["position-fs.c"]    );
     this.programs.depth       = new ShaderComposite( shaderSrcMap["depth-vs.c"],       shaderSrcMap["depth-fs.c"]       );
     this.programs.objid       = new ShaderComposite( shaderSrcMap["objid-vs.c"],       shaderSrcMap["objid-fs.c"]       );
+    
 
     for ( var key in this.programs )
     {
@@ -312,13 +343,27 @@ GRenderDeferredStrategy.prototype.initPassCmds = function()
     var phongLightPassPing = new GPostEffectLitRenderPassCmd( this.gl, this.programs.light, this.frameBuffers.phongLightPing, this.screen );
     phongLightPassPing.addInputTexture( this.frameBuffers.normal.getGTexture(),        gl.TEXTURE0 );
     phongLightPassPing.addInputTexture( this.frameBuffers.position.getGTexture(),      gl.TEXTURE1 );
-    phongLightPassPing.addInputTexture( this.frameBuffers.shadowmapPong.getGTexture(), gl.TEXTURE2 );
+    if ( 1 >= this.renderLevel )
+    {
+        phongLightPassPing.addInputTexture( this.gl.whiteTexture, gl.TEXTURE2 );
+    }
+    else
+    {
+        phongLightPassPing.addInputTexture( this.frameBuffers.shadowmapPong.getGTexture(), gl.TEXTURE2 );
+    }
     phongLightPassPing.addInputTexture( this.frameBuffers.phongLightPong.getGTexture(),gl.TEXTURE3 );
     
     var phongLightPassPong = new GPostEffectLitRenderPassCmd( this.gl, this.programs.light, this.frameBuffers.phongLightPong, this.screen );
     phongLightPassPong.addInputTexture( this.frameBuffers.normal.getGTexture(),        gl.TEXTURE0 );
     phongLightPassPong.addInputTexture( this.frameBuffers.position.getGTexture(),      gl.TEXTURE1 );
-    phongLightPassPong.addInputTexture( this.frameBuffers.shadowmapPong.getGTexture(), gl.TEXTURE2 );
+    if ( 1 >= this.renderLevel )
+    {
+        phongLightPassPong.addInputTexture( this.gl.whiteTexture, gl.TEXTURE2 );
+    }
+    else
+    {
+        phongLightPassPong.addInputTexture( this.frameBuffers.shadowmapPong.getGTexture(), gl.TEXTURE2 );
+    }
     phongLightPassPong.addInputTexture( this.frameBuffers.phongLightPing.getGTexture(),gl.TEXTURE3 );
     
     var saoPass = new GPostEffectRenderPassCmd( this.gl, this.programs.ssao, this.frameBuffers.ssao, this.screen );
@@ -336,12 +381,26 @@ GRenderDeferredStrategy.prototype.initPassCmds = function()
     var toneMapPassPing = new GPostEffectRenderPassCmd( this.gl, this.programs.toneMap, this.frameBuffers.phongLightPong, this.screen );
     toneMapPassPing.addInputFrameBuffer( this.frameBuffers.color, gl.TEXTURE0 );
     toneMapPassPing.addInputFrameBuffer( this.frameBuffers.phongLightPing, gl.TEXTURE1 );
-    toneMapPassPing.addInputFrameBuffer( this.frameBuffers.ssao, gl.TEXTURE2 );
+    if ( 0 >= this.renderLevel )
+    {
+        toneMapPassPing.addInputTexture( this.gl.whiteTexture, gl.TEXTURE2 );
+    }
+    else
+    {
+        toneMapPassPing.addInputFrameBuffer( this.frameBuffers.ssao, gl.TEXTURE2 );
+    }
     
     var toneMapPassPong = new GPostEffectRenderPassCmd( this.gl, this.programs.toneMap, this.frameBuffers.phongLightPing, this.screen );
     toneMapPassPong.addInputFrameBuffer( this.frameBuffers.color, gl.TEXTURE0 );
     toneMapPassPong.addInputFrameBuffer( this.frameBuffers.phongLightPong, gl.TEXTURE1 );
-    toneMapPassPong.addInputFrameBuffer( this.frameBuffers.ssao, gl.TEXTURE2 );
+    if ( 0 >= this.renderLevel )
+    {
+        toneMapPassPong.addInputTexture( this.gl.whiteTexture, gl.TEXTURE2 );
+    }
+    else
+    {
+        toneMapPassPong.addInputFrameBuffer( this.frameBuffers.ssao, gl.TEXTURE2 );
+    }
     
     
     var cmds = [];
@@ -359,9 +418,12 @@ GRenderDeferredStrategy.prototype.initPassCmds = function()
     preCmds.push( objidPass );
     preCmds.push( clearPhongLightPong );
     
-    shadowCmds.push( clearShadowmap );
-    shadowCmds.push( normalSource );
-    shadowCmds.push( shadowmapPass );
+    if ( this.renderLevel >= 2 )
+    {
+        shadowCmds.push( clearShadowmap );
+        shadowCmds.push( normalSource );
+        shadowCmds.push( shadowmapPass );
+    }
     
     lightCmds.push( phongLightPassPing );
     lightCmds.push( phongLightPassPong );
@@ -376,8 +438,48 @@ GRenderDeferredStrategy.prototype.initPassCmds = function()
     
     this.toneMapCmds = toneMapCmds;
     
-    this.sao = [ saoPass, saoBlurPing, saoBlurPong ];
+    if ( 0 >= this.renderLevel )
+    {
+        this.sao = [];
+    }
+    else
+    {
+        this.sao = [ saoPass, saoBlurPing, saoBlurPong ];
+    }
 };
+
+/**
+ * Get the current render level
+ * @return {number}
+ */
+GRenderDeferredStrategy.prototype.getRenderLevel = function ()
+{
+    return this.renderLevel;
+};
+
+/**
+ * Set the render level to use
+ * @param {number} the new render level
+ * @return {boolean} true if the change was applied false otherwise
+ */
+GRenderDeferredStrategy.prototype.setRenderLevel = function ( newLevel )
+{
+    if ( newLevel !== this.renderLevel &&
+         newLevel >= 0 &&
+         newLevel <= 2 )
+    {
+        this.renderLevel = newLevel;
+        
+        if ( this._isReady )
+        {
+            this.initPassCmds();
+        }
+        
+        return true;
+    }
+    
+    return false;
+}
 
 /**
  * Draw the scene and hud elements using this strategy
@@ -452,15 +554,22 @@ GRenderDeferredStrategy.prototype.draw = function ( scene, hud )
     this.setHRec(0.125+0.75, -0.125-0.75, 0.125, 0.125);
     this.drawScreenBuffer(this.programs.fullScr);*/
     
-    this.programs.fullScr.activate();
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.enable(gl.BLEND);
-       	
     if (hud != undefined)
     {
+        this.programs.fullScr.activate();
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.enable(gl.BLEND);
+        
         hud.draw(this.programs.fullScr);
+        this.programs.fullScr.deactivate();
+        
+        this.frameBuffers.objidHud.bindBuffer();
+        this.programs.objidscr.activate();
+        gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT );
+        
+        hud.draw( this.programs.objidscr );
+        this.programs.objidscr.deactivate();
     }
-    this.programs.fullScr.deactivate();
 };
 
 GRenderDeferredStrategy.tempObjIdA = new Uint8Array(4);
@@ -473,6 +582,20 @@ GRenderDeferredStrategy.tempObjIdA = new Uint8Array(4);
 GRenderDeferredStrategy.prototype.getObjectIdAt = function ( x, y )
 {
     this.frameBuffers.objid.getColorValueAt(x, y, GRenderDeferredStrategy.tempObjIdA);
+    
+    return ( GRenderDeferredStrategy.tempObjIdA[0] << 16 |
+             GRenderDeferredStrategy.tempObjIdA[1] << 8  |
+             GRenderDeferredStrategy.tempObjIdA[2] );
+};
+
+/**
+ * Get the object id of the object at the provided mouse location
+ * @param {number}
+ * @param {number}
+ */
+GRenderDeferredStrategy.prototype.getHudObjectIdAt = function ( x, y )
+{
+    this.frameBuffers.objidHud.getColorValueAt(x, y, GRenderDeferredStrategy.tempObjIdA);
     
     return ( GRenderDeferredStrategy.tempObjIdA[0] << 16 |
              GRenderDeferredStrategy.tempObjIdA[1] << 8  |
@@ -559,9 +682,14 @@ GRenderDeferredStrategy.prototype.initTextureFramebuffer = function()
     this.frameBuffers.position = frameBuffer;
     
     frameBuffer = new GFrameBuffer({ gl: this.gl, width: 1024, height: 1024 });
-    frameBuffer.addBufferTexture(texCfgFloat);
+    frameBuffer.addBufferTexture(texCfg);
     frameBuffer.complete();
     this.frameBuffers.objid = frameBuffer;
+    
+    frameBuffer = new GFrameBuffer({ gl: this.gl, width: 1024, height: 1024 });
+    frameBuffer.addBufferTexture(texCfg);
+    frameBuffer.complete();
+    this.frameBuffers.objidHud = frameBuffer;
     
     frameBuffer = new GFrameBuffer({ gl: this.gl, width: 1024, height: 1024 });
     frameBuffer.addBufferTexture(texCfgFloat);

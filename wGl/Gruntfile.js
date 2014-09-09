@@ -17,13 +17,17 @@ module.exports = function(grunt) {
                     'src/graphics/scene/interfaces/*.js',
                     'src/graphics/scene/drawordering/*.js',
 					'src/graphics/scene/concrete/*.js',
+					'src/graphics/scene/primitives/*.js',
 					'src/graphics/scene/animations/armature/*.js',
 					'src/graphics/scene/animations/*.js',
 					'src/graphics/scene/decorators/interfaces/*.js',
 					'src/graphics/scene/decorators/*.js',
                     'src/graphics/scene/*.js',
+                    'src/graphics/input/*.js',
                     'src/graphics/hud/*.js',
                     'src/graphics/*.js',
+                    'src/fsm/*.js',
+                    'src/app/*.js',
                     'src/*.js'
                 ];
 
