@@ -42,14 +42,16 @@ function GMtlReader( mtlStrA, path )
 		"map_kd":   this.process_mapKd,
 		"map_bump": this.process_mapBump,
 		"bump":     this.process_mapBump
-	}
+	};
 
 	var size = mtlStrA.length;
 	for ( var i = 0; i < size; ++i )
 	{
 		var stra = mtlStrA[i].split(" ");
 		
-		this.handler = lineHandlerMap[stra[0]];
+		var key = stra[0].toLowerCase();
+		
+		this.handler = lineHandlerMap[key];
 		if (this.handler != undefined)
 		{
 			this.handler(stra);

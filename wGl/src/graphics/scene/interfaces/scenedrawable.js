@@ -64,7 +64,7 @@ function SceneDrawable()
 SceneDrawable.instanceCounter = 0;
 
 /** 
- * @param {number}
+ * @return {number}
  */
 SceneDrawable.prototype.getObjId = function()
 {
@@ -95,7 +95,7 @@ SceneDrawable.prototype.requestDeferredDraw = function( command, conditionCode )
     }
     
     return false;
-}
+};
 
 /**
  * Get the name of this Drawable

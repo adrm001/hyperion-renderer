@@ -24,7 +24,7 @@
  */
 function GFrameBuffer( config )
 {
-    var gl = config.gl;
+    /** @type {WebGLRenderingContext} */ var gl = config.gl;
     var framebuffer = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     
@@ -179,5 +179,21 @@ GFrameBuffer.prototype.getColorValueAt = function( x, y, outArg )
     this.bindBuffer();
     var gl = this.cfg.gl;
     gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, outArg);
+};
+
+/**
+ * Called to delete all the resources under this buffer
+ */
+GFrameBuffer.prototype.deleteResources = function()
+{
+    var gl = this.cfg.gl;
+    
+    gl.deleteFramebuffer( this.fBuffer );
+    gl.deleteRenderbuffer( this.rBuffer );
+    
+    for ( var key in this.textures )
+    {
+        gl.deleteTexture( this.textures[key] );
+    }
 };
 
